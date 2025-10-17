@@ -16,7 +16,7 @@ target_headers = {"ja", "jp", "jap", "japanese"}
 pattern = re.compile(r"""
 (
     ([一-龯]{2}|[゠-ヿ]{2,12}|こと|ところ|[一-龯](?:[ぁ-ゖ゛-ゟー](?!で))+[一-龯])
-    (が|は|の|する(?!な)|から|まで|に(?![はも])|に[はも]|へ|で(?![はもす])|で[はも]|じて)
+    (が|は|の|する(?!な)|から(?!して)|まで|に(?![はも])|に[はも]|へ|で(?![はもす])|で[はも]|じて)
     |
     [、。？！]
     |
@@ -24,10 +24,12 @@ pattern = re.compile(r"""
     |
     [一-龯]すぎ[^たるだ]
     |
-    について|に関して|ったり|とにかく|でも|[くぐ]らい|まるで|って(?![るか])|すなわち|
+    について|に関して|ったり|とにかく|でも|[くぐ]らい|まるで|って(?![るたか])|すなわち|
     [うくすつぬふむる]の[にはもが]|を|んな[のに]|ったら|として|つまり|ちょっと|ちょうど|
-    だと|だけ|とは|のほうが|ないほうが|の方が|ない方が|風に|[いきしちにひみり]たくて|
-    ほとんど|らしくて|らしく(?!て)
+    だと|だけ|とは|[のただ]ほうが|ないほうが|[のただ]方が|ない方が|風に|[いきしちにひみり]たくて|
+    ほとんど|らしくて|らしく(?!て)|ために(?![はも])|ために[はも]|為に(?![はも])|為に[はも]|
+    いきなり|すれば|れば(?=[い良善好]い)|て(?=い?ました)|しっかり|して(?=あげ([るた]|(ます|まし)))|
+    より(?=ずっと)|はじめて
 )
 """, re.VERBOSE)
 
@@ -40,7 +42,7 @@ def cleanup_zwsp_spacing(text):
     return re.sub(r'\u200B(.{1,2})\u200B', lambda m: m.group(1) + '\u200B', text)
 
 def postprocess_ellipses(text):
-    """Handle special rules for ellipses (… and ……): 
+    """Handle special rules for ellipses (… and ……):
        - No ZWSP if text starts with ellipsis
        - Add ZWSP after single '…' (not '……') when mid-sentence
     """
@@ -48,7 +50,7 @@ def postprocess_ellipses(text):
         return text
 
     # 1️⃣ Remove ZWSP immediately after starting ellipses
-    text = re.sub(r'^(…{1,2})\u200B', r'\1', text)
+    text = re.sub(r'^(…{1,4})\u200B', r'\1', text)
 
     # 2️⃣ Add ZWSP after single ellipsis not followed by another ellipsis
     text = re.sub(r'(?<!…)(…)(?!…)(?=\S)', lambda m: m.group(1) + '\u200B', text)
