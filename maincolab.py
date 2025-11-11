@@ -5,15 +5,16 @@ from openpyxl import load_workbook
 import os
 
 # ============================================================
-# 🧩 CONFIGURATION
+# 🧩 CONFIGURATION (Minimal Interactive)
 # ============================================================
-# Define what to insert between detected Japanese chunks.
-# Default: Zero-width space (ZWSP: '\u200B')
-# Examples:
-#   INSERT_CHAR = '\u200B'   # Zero-width space
-#   INSERT_CHAR = '|'        # Vertical bar
-#   INSERT_CHAR = '*'        # Asterisk
-INSERT_CHAR = '\u200B'
+# Press Enter to use zero-width space (default), or type a custom delimiter.
+
+user_input = input("Enter a delimiter (press Enter for invisible ZWSP '\\u200B'): ").strip()
+INSERT_CHAR = user_input if user_input else '\u200B'
+
+preview_symbol = "[ZWSP]" if INSERT_CHAR == '\u200B' else INSERT_CHAR
+print(f"✅ Using delimiter: {repr(INSERT_CHAR)}")
+print(f"🔍 Preview: 日本語{preview_symbol}テキスト")
 # ============================================================
 
 # --- Upload Excel file ---
@@ -29,7 +30,7 @@ pattern = re.compile(r"""
 (
     ([一-龯]{1,2}|[゠-ヿ]{2,12}|こと|ところ|[一-龯](?:[ぁ-ゖ゛-ゟ](?!で))+[一-龯]|[゠-ヿ]{2,12}[一-龯]|もの|入り|」|たち|ここ|そこ|[一-龯]ら|(?P<double>[ぁ-ゖ゛-ゟ]{2})(?P=double)|[えけげせぜてでねめれ]る|まま|[あこそ]いつ|あ[なん]た|さん|まみれ|おそらく|たっぷり|気持ち|すら|さすが|くず|あちこち|もと)
     (が(?!(して|った))|か(?!([はもらえけげせぜてでねめれいきぎしちにんをうくぐすつぬむるっ]|った|さ))|か[は]|は(?!ず)|も(?!の)|の(?![みにがはた為])|なく(?!て)|な(?![くのんらるい])|する(?!な)|から(?!して)|まで|に(?!([はも]|ついて|関して|すら))|
-    に[はも]|へ[の]|へ(?![の])|で(?![はもすしきの])|で[はも]|じて(?!る)|や(?![かり])|と[のはか]|と(?!([のなはか]|[い言云]う))|して[はも]|して(?![はも])|ならば|なら(?![ばで]))
+    に[はも]|へ[の]|へ(?![の])|で(?![はもすしきの])|で[はも]|じて(?!る)|や(?![かり])|と[のはか]|と(?!([のなはか]|[い言云]う))|して[はも]|して(?![はもる])|ならば|なら(?![ばで]))
     |
     [、。？！・：；]
     |
@@ -61,15 +62,9 @@ def postprocess_ellipses(text):
     if not isinstance(text, str):
         return text
 
-    # 1️⃣ Remove inserted chars right after leading ellipses
     text = re.sub(rf'^(…{{1,4}}){re.escape(INSERT_CHAR)}', r'\1', text)
-
-    # 2️⃣ Add INSERT_CHAR after a single ellipsis (not followed by another)
     text = re.sub(r'(?<!…)(…)(?!…)(?=\S)', lambda m: m.group(1) + INSERT_CHAR, text)
-
-    # 3️⃣ Remove stray INSERT_CHAR before ellipses
     text = re.sub(rf'([^\s…]){re.escape(INSERT_CHAR)}(…|\.\.\.)', r'\1\2', text)
-
     return text
 
 
@@ -82,11 +77,8 @@ def insert_delimiter(text):
         end = m.end()
         remainder = text[end:]
         next_char = remainder[:1]
-
-        # Skip if next char is punctuation or remainder only punctuation/whitespace
         if re.match(r'[、。？！,．,.!?"”」』）)]', next_char) or re.match(r'^[、。？！…‥！？\s]*$', remainder):
             return m.group(0)
-
         return m.group(0) + INSERT_CHAR
 
     processed = pattern.sub(replacer, text)
