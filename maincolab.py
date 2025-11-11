@@ -1,4 +1,4 @@
-import re
+import regex as re
 from google.colab import files
 import io
 from openpyxl import load_workbook
@@ -67,7 +67,7 @@ def postprocess_ellipses(text):
     text = re.sub(r'(?<!…)(…)(?!…)(?=\S)', lambda m: m.group(1) + '\u200B', text)
 
     # 1️⃣ Remove stray ZWSP snuck before ellipses
-    text = re.sub(r'(\w)\u200B(…|\.\.\.)', r'\1\2', text)
+    text = re.sub(r'([^\s…])\u200B(…|\.\.\.)', r'\1\2', text)
 
     return text
 
