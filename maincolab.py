@@ -5,7 +5,7 @@ from openpyxl import load_workbook
 import os
 
 # ============================================================
-#  MODE SELECTION
+# 🧩 MODE SELECTION
 # ============================================================
 print("Choose a mode:\n"
       "  1. Insert delimiters into an Excel file\n"
@@ -40,7 +40,7 @@ pattern = re.compile(r"""
     なら(?=([一-龯]|[゠-ヿ]{2}))|なのは|[えけげせぜてでねめれ][るてた](?=([一-龯]|[゠-ヿ]{2}))|たく(?=な[いか])|[わかさたなまら]れ[るた](?=([一-龯]|[゠-ヿ]{2}))|いくつか|[一-龯]ても|して(?=([一-龯]|[゠-ヿ]{2}))|
     [一-龯]たる(?=([一-龯]|[゠-ヿ]{2}))|という(?=([一-龯]|[゠-ヿ]{2}))|を|な[くい](?=([一-龯]|[゠-ヿ]{2}))|[一-龯][ぁ-ゖ゛-ゟ]に(?=な(る|った|らな))|いた(?=([一-龯]|[゠-ヿ]{2}))|
     ないと(?=([一-龯]|[゠-ヿ]{2}))|て(?=ほし[いくか])|[一-龯]{2}(?=[゠-ヿ]{2})|な(?=([一-龯]|[゠-ヿ]{2}))|[゠-ヿ]{2}(?=[一-龯]{2})|(?P<doubler>[ぁ-ゖ゛-ゟ]{2})(?P=doubler)|くて(?=[一-龯])|
-    しか(?=([一-龯]|[゠-ヿ]{2}))|よりかは|て(?=しま[ういわ])
+    しか(?=([一-龯]|[゠-ヿ]{2}))|よりかは|て(?=しま[ういわ])|とっ?ても
 )
 """, re.VERBOSE)
 
@@ -117,11 +117,11 @@ elif mode == "2":
         for i in range(1, lines):
             target_pos = target_len * i
             best_break = min(break_positions, key=lambda x: abs(x - target_pos))
+            # ensure break moves forward to avoid infinite loops
             if best_break > last:
                 chosen_breaks.append(best_break)
                 last = best_break
 
-        # Remove duplicates and sort
         chosen_breaks = sorted(set(chosen_breaks))
         chunks = []
         prev = 0
@@ -129,6 +129,49 @@ elif mode == "2":
             chunks.append(text[prev:bp])
             prev = bp
         chunks.append(text[prev:])
+
+        # --- Polishing pass: punctuation + short-token fixes ---
+        def polish_lines(chunks):
+            """Avoid lines starting/ending with dangling punctuation or short 'conjunct + punctuation' heads."""
+            adjusted = chunks[:]  # work on a copy
+            punct = "、。？！：；…‥" + "\.\.\."
+            # 1) Move trailing punctuation (within last 1-3 chars) to next line
+            for i in range(len(adjusted) - 1):
+                for n in range(1, 4):
+                    if len(adjusted[i]) >= n and adjusted[i][-n] in punct:
+                        # move those n chars to start of next line
+                        adjusted[i+1] = adjusted[i][-n:] + adjusted[i+1]
+                        adjusted[i] = adjusted[i][:-n]
+                        break
+
+            # 2) Move leading punctuation to previous line
+            for i in range(1, len(adjusted)):
+                for n in range(1, 4):
+                    if len(adjusted[i]) >= n and adjusted[i][0] in punct:
+                        adjusted[i-1] += adjusted[i][:n]
+                        adjusted[i] = adjusted[i][n:]
+                        break
+
+            # 3) Move leading punctuation (within first 1-3 chars) to previous line
+            for i in range(1, len(adjusted)):
+                m = re.match(r'^([\p{Hiragana}\p{Katakana}\p{Han}]{1,3})([、。？！…])', adjusted[i])
+                if m:
+                    tok = m.group(1) + m.group(2)
+                    # move token to previous line, avoid creating empty previous line
+                    adjusted[i-1] += tok
+                    adjusted[i] = adjusted[i][len(tok):]
+
+            # final pass: trim accidental empty lines (but keep at least one char if possible)
+            final = []
+            for part in adjusted:
+                if part == "" and final:
+                    # if empty and there's a previous, merge with previous to avoid empties
+                    final[-1] += ""
+                else:
+                    final.append(part)
+            return final
+
+        chunks = polish_lines(chunks)
 
         print("\n✅ Suggested linebreaks:\n")
         for i, chunk in enumerate(chunks, 1):
