@@ -5,7 +5,7 @@ from openpyxl import load_workbook
 import os
 
 # ============================================================
-# 🧩 MODE SELECTION
+#  MODE SELECTION
 # ============================================================
 print("Choose a mode:\n"
       "  1. Insert delimiters into an Excel file\n"
