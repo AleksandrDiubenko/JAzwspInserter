@@ -5,25 +5,13 @@ from openpyxl import load_workbook
 import os
 
 # ============================================================
-# 🧩 CONFIGURATION (Minimal Interactive)
+#  MODE SELECTION
 # ============================================================
-# Press Enter to use zero-width space (default), or type a custom delimiter.
+print("Choose a mode:\n"
+      "  1. Insert delimiters into an Excel file\n"
+      "  2. Linebreak a Japanese text segment into balanced chunks\n")
 
-user_input = input("Enter a delimiter (press Enter for invisible ZWSP '\\u200B'): ").strip()
-INSERT_CHAR = user_input if user_input else '\u200B'
-
-preview_symbol = "[ZWSP]" if INSERT_CHAR == '\u200B' else INSERT_CHAR
-print(f"✅ Using delimiter: {repr(INSERT_CHAR)}")
-print(f"🔍 Preview: 日本語{preview_symbol}テキスト")
-# ============================================================
-
-# --- Upload Excel file ---
-uploaded = files.upload()
-filename = list(uploaded.keys())[0]
-
-# --- Load workbook preserving formatting ---
-wb = load_workbook(io.BytesIO(uploaded[filename]))
-target_headers = {"ja", "jp", "jap", "japanese"}
+mode = input("Enter 1 or 2 (default: 1): ").strip() or "1"
 
 # --- Main regex ---
 pattern = re.compile(r"""
@@ -56,53 +44,95 @@ pattern = re.compile(r"""
 )
 """, re.VERBOSE)
 
-# --- Functions ---
-def postprocess_ellipses(text):
-    """Handle ellipsis rules for cleaner insertion."""
-    if not isinstance(text, str):
+# ============================================================
+#  MODE 1: Excel delimiter insertion
+# ============================================================
+if mode == "1":
+    user_input = input("Enter a delimiter (press Enter for invisible ZWSP '\\u200B'): ").strip()
+    INSERT_CHAR = user_input if user_input else '\u200B'
+    preview_symbol = "[ZWSP]" if INSERT_CHAR == '\u200B' else INSERT_CHAR
+    print(f"✅ Using delimiter: {repr(INSERT_CHAR)}")
+    print(f"🔍 Preview: 日本語{preview_symbol}テキスト")
+
+    uploaded = files.upload()
+    filename = list(uploaded.keys())[0]
+    wb = load_workbook(io.BytesIO(uploaded[filename]))
+    target_headers = {"ja", "jp", "jap", "japanese"}
+
+    def postprocess_ellipses(text):
+        if not isinstance(text, str):
+            return text
+        text = re.sub(rf'^(…{{1,4}}){re.escape(INSERT_CHAR)}', r'\1', text)
+        text = re.sub(r'(?<!…)(…)(?!…)(?=\S)', lambda m: m.group(1) + INSERT_CHAR, text)
+        text = re.sub(rf'([^\s…]){re.escape(INSERT_CHAR)}(…|\.\.\.)', r'\1\2', text)
         return text
 
-    text = re.sub(rf'^(…{{1,4}}){re.escape(INSERT_CHAR)}', r'\1', text)
-    text = re.sub(r'(?<!…)(…)(?!…)(?=\S)', lambda m: m.group(1) + INSERT_CHAR, text)
-    text = re.sub(rf'([^\s…]){re.escape(INSERT_CHAR)}(…|\.\.\.)', r'\1\2', text)
-    return text
+    def insert_delimiter(text):
+        if not isinstance(text, str):
+            return text
+        def replacer(m):
+            end = m.end()
+            remainder = text[end:]
+            next_char = remainder[:1]
+            if re.match(r'[、。？！,．,.!?"”」』）)]', next_char) or re.match(r'^[、。？！…‥！？\s]*$', remainder):
+                return m.group(0)
+            return m.group(0) + INSERT_CHAR
+        processed = pattern.sub(replacer, text)
+        return postprocess_ellipses(processed)
 
+    for ws in wb.worksheets:
+        headers = {cell.value: cell.column for cell in ws[1] if cell.value}
+        for header, col in headers.items():
+            if str(header).strip().lower() in target_headers:
+                for row in range(2, ws.max_row + 1):
+                    cell = ws.cell(row=row, column=col)
+                    if isinstance(cell.value, str):
+                        new_val = insert_delimiter(cell.value)
+                        if new_val != cell.value:
+                            cell.value = new_val
 
-def insert_delimiter(text):
-    """Insert the chosen delimiter after pattern matches."""
-    if not isinstance(text, str):
-        return text
+    name, ext = os.path.splitext(filename)
+    output_filename = f"delimiters_added_{name}{ext}"
+    wb.save(output_filename)
+    files.download(output_filename)
+    print(f"✅ Done! File saved as: {output_filename}")
 
-    def replacer(m):
-        end = m.end()
-        remainder = text[end:]
-        next_char = remainder[:1]
-        if re.match(r'[、。？！,．,.!?"”」』）)]', next_char) or re.match(r'^[、。？！…‥！？\s]*$', remainder):
-            return m.group(0)
-        return m.group(0) + INSERT_CHAR
+# ============================================================
+#  MODE 2: Smart text segment linebreaker
+# ============================================================
+elif mode == "2":
+    text = input("Paste the Japanese text segment:\n").strip()
+    lines = int(input("How many lines would you like to split it into? ").strip())
 
-    processed = pattern.sub(replacer, text)
-    processed = postprocess_ellipses(processed)
-    return processed
+    # Find all potential breakpoints
+    break_positions = [m.end() for m in pattern.finditer(text)]
+    if not break_positions:
+        print("⚠️ No suitable breakpoints found.")
+    else:
+        total_len = len(text)
+        target_len = total_len / lines
+        chosen_breaks = []
+        last = 0
 
+        for i in range(1, lines):
+            target_pos = target_len * i
+            best_break = min(break_positions, key=lambda x: abs(x - target_pos))
+            if best_break > last:
+                chosen_breaks.append(best_break)
+                last = best_break
 
-# --- Process all sheets ---
-for ws in wb.worksheets:
-    headers = {cell.value: cell.column for cell in ws[1] if cell.value}
-    for header, col in headers.items():
-        if str(header).strip().lower() in target_headers:
-            for row in range(2, ws.max_row + 1):
-                cell = ws.cell(row=row, column=col)
-                if isinstance(cell.value, str):
-                    new_val = insert_delimiter(cell.value)
-                    if new_val != cell.value:
-                        cell.value = new_val
+        # Remove duplicates and sort
+        chosen_breaks = sorted(set(chosen_breaks))
+        chunks = []
+        prev = 0
+        for bp in chosen_breaks:
+            chunks.append(text[prev:bp])
+            prev = bp
+        chunks.append(text[prev:])
 
-# --- Build dynamic output filename ---
-name, ext = os.path.splitext(filename)
-output_filename = f"delimiters_added_{name}{ext}"
-wb.save(output_filename)
-files.download(output_filename)
+        print("\n✅ Suggested linebreaks:\n")
+        for i, chunk in enumerate(chunks, 1):
+            print(f"{i:02d}: {chunk}")
 
-print(f"✅ Done! File saved as: {output_filename}")
-print(f"✅ Inserted character: {repr(INSERT_CHAR)}")
+else:
+    print("⚠️ Invalid mode. Exiting.")
