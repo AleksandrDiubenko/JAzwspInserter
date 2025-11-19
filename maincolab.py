@@ -1,181 +1,201 @@
-import regex as re
-from google.colab import files
+# Enhanced Kanji Database Tool for Google Colab
+
+!pip install xlsxwriter --quiet
+
+import pandas as pd
+import re
 import io
-from openpyxl import load_workbook
 import os
+import sqlite3
+from google.colab import files
+import ipywidgets as widgets
+from IPython.display import display, clear_output
 
-# ============================================================
-#  MODE SELECTION
-# ============================================================
-print("Choose a mode:\n"
-      "  1. Insert delimiters into an Excel file\n"
-      "  2. Linebreak a Japanese text segment into balanced chunks\n")
+# --- Utility Functions ---
 
-mode = input("Enter 1 or 2 (default: 1): ").strip() or "1"
+def extract_kanji(text):
+    if pd.isna(text):
+        return []
+    # CJK ideographs only, no hiragana, no katakana
+    return re.findall(r'[\u4E00-\u9FFF]', str(text))
+    # If need hangul use  this instead:
+    # re.findall(r'[\u4E00-\u9FFF\uAC00-\uD7AF]', str(text))
 
-# --- Main regex ---
-pattern = re.compile(r"""
-(
-    (\p{Han}{1,2}|\p{Katakana}{2,12}|こと|ところ|\p{Han}(?:\p{Hiragana}(?!で))+\p{Han}|\p{Katakana}{2,12}\p{Han}|もの|入り|」|たち|ここ|そこ|\p{Han}ら|(?P<double>\p{Hiragana}{2})(?P=double)|[えけげせぜてでねめれ]る|まま|[あこそ]いつ|あ[なん]た|さん|まみれ|おそらく|たっぷり|気持ち|すら|さすが|くず|あちこち|もと|さま|[こそあど]れ|ど[れん]だけ|みんな)
-    (が(?!(して|った))|か(?!([はもらなえけげせぜてでねめれいきぎしちにんをうくぐすつぬむるっ]|った|さ))|か[は]|は(?!ず)|も(?!の)|の(?![みにがはた為])|なく(?!て)|な(?![くのんらるい])|する(?!な)|から(?!して)|まで|に(?!([はも]|ついて|関して|すら))|
-    に[はも]|へ[の]|へ(?![の])|で(?![はもすしきの])|で[はも]|じて(?!る)|や(?![かり])|と[のはか]|と(?!([のなはか]|[い言云]う))|して[はも]|して(?![はもる])|ならば|なら(?![ばで]))
-    |
-    [、。？！・：；]
-    |
-    (――)|(……)|(\.\.\.)
-    |
-    \p{Han}すぎ[^たるだ]
-    |
-    について(?![はも])|について[はも]|に関して(?![はも])|に関して[はも]|[っいきぎしちにん][ただ]り|とにかく|でも|[くぐ]らい(?!は)|[くぐ]らいは|まるで|って(?![るたかも])|っても|
-    すなわち|[うくぐすつぬふむる]の[にはもが]|を|んな[のに]|[って]たら|として(?!も)|つまり|ちょっと|ちょうど|々な|々に(?![もは])|々に[もは]|たい(?=\p{Han})|けど|よう[なに](?=(\p{Han}{2}|\p{Katakana}{2}))|
-    だと(?!は)|だとは|とは|[のただ]ほうが|ないほうが|[のただ]方が|ない方が|風に|[いきしちにひみり]たくて|[うくすつぬふむる]まて|[^一-龯]続く|ないと(?=いけ)|く(?=(\p{Han}|\p{Katakana}{2}))|
-    ほとんど|らしくて(?!は)|らしく(?!て)|ため([にの](?![はも])|ならば|なら(?!ば))|ため[にの][はも]|為に(?![はも])|為に[はも]|わけ(では|じゃ(?!あ))|ほうが(?=(\p{Han}|\p{Katakana}{2}))|
-    いきなり|すれば|(れば|ないと)(?=([い良善好]い|[よ良善好]か))|て(?=い?ました)|しっかり|して(?=あげ([るた]|(ます|まし)))|て(?=(ください|下さい|ちょうだい))|これまでに(?!は)|
-    より(?=ずっと)|はじめて|て(?=くれ)|くなって(?!は)|され[るた](?![んの])|かった(?![んのりわっがぞぜ])|もなくて(?!は)|あらゆる|すべて(の|を|では|じゃ(?!あ))|すぐに[はも]|すぐに(?![はも])|
-    もなく(?!て)|ながら|がてら|った(?![らんのりわっがぞぜ])|よりも|かも(?=[しれ])|とともに(?![はも])|と共に(?![はも])|もっとも|すべて(?!でのを)|ただの|まま(?=(\p{Han}|\p{Katakana}{2}))|
-    どうして|どうやって|した(?=(\p{Han}{2}|こと|とこ))|のもとに|[うくすつぬふむるじの]よう[にな]|れて(?=(いき?ま|いる|いた|いな))|じゃ(?=な[いか])|では(?=な[いか])|またしても|
-    どうなるか(?!は)|どうなるかは|しばらく|[えけげせぜてでねめれ]なく(?!て)|[えけげせぜてでねめれあかさたなまら]ずに|[えけげせぜてでねめれいきしじちにみりっ]て(?=い(る|ま|く|け))|
-    \p{Han}し?い(?=(\p{Han}|\p{Katakana}{2}))(?!出)|\p{Han}しく(?=(\p{Han}|\p{Katakana}{2}))|べきじゃ(?!あ)|かなり(?=(\p{Han}|\p{Katakana}{2}))|[えけげせぜてでねめれ]ば(?=(\p{Han}|\p{Katakana}{2}))|
-    ゆっくり(?=(\p{Han}|\p{Katakana}{2}))|ちゃんと(?=(\p{Han}|\p{Katakana}{2}))|(なければ|なきゃ|ないと)(?=(なら|いけ))|\p{Hiragana}(?=(はず|べき)(だ|よ|$|。|…|！|？))|\p{Hiragana}(?=\p{Katakana}{2})|て(?=ありがと)|
-    なら(?=(\p{Han}|\p{Katakana}{2}))|なのは|[えけげせぜてでねめれ][るてた](?=(\p{Han}|\p{Katakana}{2}))|たく(?=な[いか])|[わかさたなまら]れ[るた](?=(\p{Han}|\p{Katakana}{2}))|いくつか|\p{Han}ても|して(?=(\p{Han}|\p{Katakana}{2}))|
-    \p{Han}たる(?=(\p{Han}|\p{Katakana}{2}))|という(?=(\p{Han}|\p{Katakana}{2}))|を|な[くい](?=(\p{Han}|\p{Katakana}{2}))|\p{Han}\p{Hiragana}に(?=な(る|った|らな))|いた(?=(\p{Han}|\p{Katakana}{2}))|
-    ないと(?=(\p{Han}|\p{Katakana}{2}))|て(?=ほし[いくか])|\p{Han}{2}(?=\p{Katakana}{2})|な(?=(\p{Han}|\p{Katakana}{2}))|\p{Katakana}{2}(?=\p{Han}{2})|(?P<doubler>\p{Hiragana}{2})(?P=doubler)|くて(?=\p{Han})|
-    しか(?=(\p{Han}|\p{Katakana}{2}))|よりかは|て(?=しま[ういわ])|とっ?ても|\p{Han}\p{Hiragana}(?=\p{Han}{2})|とか(?=\p{Han})
-)
-""", re.VERBOSE)
-
-# ============================================================
-#  MODE 1: Excel delimiter insertion
-# ============================================================
-if mode == "1":
-    user_input = input("Enter a delimiter (press Enter for invisible ZWSP '\\u200B'): ").strip()
-    INSERT_CHAR = user_input if user_input else '\u200B'
-    preview_symbol = "[ZWSP]" if INSERT_CHAR == '\u200B' else INSERT_CHAR
-    print(f"✅ Using delimiter: {repr(INSERT_CHAR)}")
-    print(f"🔍 Preview: 日本語{preview_symbol}テキスト")
-
+def read_uploaded_file(expected_format="excel_or_sqlite"):
     uploaded = files.upload()
-    filename = list(uploaded.keys())[0]
-    wb = load_workbook(io.BytesIO(uploaded[filename]))
-    target_headers = {"ja", "jp", "jap", "japanese"}
+    filename = next(iter(uploaded))
 
-    def postprocess_ellipses(text):
-        if not isinstance(text, str):
-            return text
-        text = re.sub(rf'^(…{{1,4}}){re.escape(INSERT_CHAR)}', r'\1', text)
-        text = re.sub(r'(?<!…)(…)(?!…)(?=\S)', lambda m: m.group(1) + INSERT_CHAR, text)
-        text = re.sub(rf'([^\s…]){re.escape(INSERT_CHAR)}(…|\.\.\.)', r'\1\2', text)
-        return text
+    # Validate file type
+    if expected_format == "excel_or_sqlite":
+        if not filename.endswith((".xlsx", ".xls", ".csv", ".sqlite")):
+            raise ValueError("❌ Please upload a valid Excel (.xlsx, .xls, .csv) or SQLite (.sqlite) file.")
+    elif expected_format == "excel":
+        if not filename.endswith((".xlsx", ".xls", ".csv")):
+            raise ValueError("❌ Please upload a valid Excel or CSV file.")
 
-    def insert_delimiter(text):
-        if not isinstance(text, str):
-            return text
-        def replacer(m):
-            end = m.end()
-            remainder = text[end:]
-            next_char = remainder[:1]
-            if re.match(r'[、。？！,．,.!?"”」』）)]', next_char) or re.match(r'^[、。？！…‥！？\s]*$', remainder):
-                return m.group(0)
-            return m.group(0) + INSERT_CHAR
-        processed = pattern.sub(replacer, text)
-        return postprocess_ellipses(processed)
+    return filename, uploaded[filename]
 
-    for ws in wb.worksheets:
-        headers = {cell.value: cell.column for cell in ws[1] if cell.value}
-        for header, col in headers.items():
-            if str(header).strip().lower() in target_headers:
-                for row in range(2, ws.max_row + 1):
-                    cell = ws.cell(row=row, column=col)
-                    if isinstance(cell.value, str):
-                        new_val = insert_delimiter(cell.value)
-                        if new_val != cell.value:
-                            cell.value = new_val
+def make_safe_filename(raw_name, prefix="kanji_database_"):
+    base = os.path.splitext(raw_name)[0]
+    base = base.replace(",", "").replace(" ", "_")
+    return f"{prefix}{base}.xlsx"
 
-    name, ext = os.path.splitext(filename)
-    output_filename = f"delimiters_added_{name}{ext}"
-    wb.save(output_filename)
-    files.download(output_filename)
-    print(f"✅ Done! File saved as: {output_filename}")
+def write_kanji_to_excel(kanji_set, filename):
+    df = pd.DataFrame(sorted(kanji_set), columns=["Kanji"])
+    with pd.ExcelWriter(filename, engine="xlsxwriter") as writer:
+        df.to_excel(writer, index=False, sheet_name="KanjiDatabase")
+    files.download(filename)
 
-# ============================================================
-#  MODE 2: Smart text segment linebreaker
-# ============================================================
-elif mode == "2":
-    text = input("Paste the Japanese text segment:\n").strip()
-    lines = int(input("How many lines would you like to split it into? ").strip())
+def write_kanji_to_sqlite(kanji_set, db_filename):
+    db_name = db_filename.replace(".xlsx", ".sqlite")
+    conn = sqlite3.connect(db_name)
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS kanji (char TEXT PRIMARY KEY)")
+    for char in sorted(kanji_set):
+        c.execute("INSERT OR IGNORE INTO kanji (char) VALUES (?)", (char,))
+    conn.commit()
+    conn.close()
+    files.download(db_name)
 
-    # Find all potential breakpoints
-    break_positions = [m.end() for m in pattern.finditer(text)]
-    if not break_positions:
-        print("⚠️ No suitable breakpoints found.")
+def is_japanese_column(col_name):
+    col_name = str(col_name).strip().lower()
+    keywords = ["japanese", "jap", "ja", "jp", "日本", "日本語"]
+    return any(k in col_name for k in keywords)
+
+def scan_excel_for_kanji_column(file_bytes, filename, progress_bar=None):
+    all_kanji = set()
+    try:
+        if filename.endswith(".csv"):
+            df = pd.read_csv(io.BytesIO(file_bytes))
+            sheets = {"Sheet1": df}
+        else:
+            xls = pd.ExcelFile(io.BytesIO(file_bytes))
+            sheets = {sheet: xls.parse(sheet) for sheet in xls.sheet_names}
+    except Exception as e:
+        raise ValueError(f"❌ Could not read the file: {e}")
+
+    total = len(sheets)
+    for i, (sheet_name, df) in enumerate(sheets.items(), start=1):
+        col = next((c for c in df.columns if is_japanese_column(c)), None)
+        if col:
+            for val in df[col]:
+                chars = extract_kanji(val)
+                all_kanji.update(chars)
+        if progress_bar:
+            progress_bar.value = int((i / total) * 100)
+    return all_kanji
+
+# --- Main Functionalities ---
+
+def construct_kanji_database():
+    clear_output()
+    print("📥 Upload Excel/CSV file with a JAPANESE column...")
+    filename, file_bytes = read_uploaded_file("excel")
+    progress = widgets.IntProgress(value=0, min=0, max=100)
+    display(progress)
+    kanji_set = scan_excel_for_kanji_column(file_bytes, filename, progress)
+    safe_filename = make_safe_filename(filename)
+    write_kanji_to_excel(kanji_set, safe_filename)
+    write_kanji_to_sqlite(kanji_set, safe_filename)
+    print("✅ Kanji database created!")
+
+def append_to_database():
+    clear_output()
+    print("📥 Upload existing Kanji database (Excel/CSV)...")
+    db_filename, db_bytes = read_uploaded_file("excel")
+    db_df = pd.read_excel(io.BytesIO(db_bytes))
+    existing_kanji = set(db_df["Kanji"].dropna().astype(str))
+
+    print("📥 Upload Excel/CSV with NEW content...")
+    update_filename, update_bytes = read_uploaded_file("excel")
+    progress = widgets.IntProgress(value=0, min=0, max=100)
+    display(progress)
+    new_kanji = scan_excel_for_kanji_column(update_bytes, update_filename, progress)
+
+    added_kanji = new_kanji - existing_kanji
+    all_kanji = existing_kanji.union(added_kanji)
+
+    updated_filename = make_safe_filename(db_filename, prefix="updated_")
+    write_kanji_to_excel(all_kanji, updated_filename)
+    write_kanji_to_sqlite(all_kanji, updated_filename)
+    print("✅ Updated Kanji database created!")
+
+def check_against_database():
+    clear_output()
+    print("📥 Upload Kanji database (Excel/SQLite)...")
+    db_filename, db_bytes = read_uploaded_file("excel_or_sqlite")
+
+    if db_filename.endswith(".sqlite"):
+        conn = sqlite3.connect(f"/content/{db_filename}")
+        df = pd.read_sql_query("SELECT char as Kanji FROM kanji", conn)
+        conn.close()
     else:
-        total_len = len(text)
-        target_len = total_len / lines
-        chosen_breaks = []
-        last = 0
+        df = pd.read_excel(io.BytesIO(db_bytes))
 
-        for i in range(1, lines):
-            target_pos = target_len * i
-            best_break = min(break_positions, key=lambda x: abs(x - target_pos))
-            # ensure break moves forward to avoid infinite loops
-            if best_break > last:
-                chosen_breaks.append(best_break)
-                last = best_break
+    existing_kanji = set(df["Kanji"].dropna().astype(str))
 
-        chosen_breaks = sorted(set(chosen_breaks))
-        chunks = []
-        prev = 0
-        for bp in chosen_breaks:
-            chunks.append(text[prev:bp])
-            prev = bp
-        chunks.append(text[prev:])
+    print("📥 Upload Excel/CSV to check against DB...")
+    check_filename, check_bytes = read_uploaded_file("excel")
+    xls = pd.ExcelFile(io.BytesIO(check_bytes))
 
-        # --- Polishing pass: punctuation + short-token fixes ---
-        def polish_lines(chunks):
-            """Avoid lines starting/ending with dangling punctuation or short 'conjunct + punctuation' heads."""
-            adjusted = chunks[:]  # work on a copy
-            punct = "、。？！：；…‥" + "..."
-            # 1) Move trailing punctuation (within last 1-3 chars) to next line
-            for i in range(len(adjusted) - 1):
-                for n in range(1, 4):
-                    if len(adjusted[i]) >= n and adjusted[i][-n] in punct:
-                        # move those n chars to start of next line
-                        adjusted[i+1] = adjusted[i][-n:] + adjusted[i+1]
-                        adjusted[i] = adjusted[i][:-n]
-                        break
+    missing_report = []
+    progress = widgets.IntProgress(value=0, min=0, max=100)
+    display(progress)
 
-            # 2) Move leading punctuation to previous line
-            for i in range(1, len(adjusted)):
-                for n in range(1, 4):
-                    if len(adjusted[i]) >= n and adjusted[i][0] in punct:
-                        adjusted[i-1] += adjusted[i][:n]
-                        adjusted[i] = adjusted[i][n:]
-                        break
+    for i, sheet_name in enumerate(xls.sheet_names):
+        df = xls.parse(sheet_name)
+        col = next((c for c in df.columns if is_japanese_column(c)), None)
+        if col:
+            for idx, val in enumerate(df[col]):
+                if pd.isna(val): continue
+                full_text = str(val)
+                for char in extract_kanji(val):
+                    if char not in existing_kanji:
+                        missing_report.append((sheet_name, idx + 2, full_text, char))
+        progress.value = int((i + 1) / len(xls.sheet_names) * 100)
 
-            # 3) Move punctuation within first 1-3 chars to previous line
-            for i in range(1, len(adjusted)):
-                m = re.match(r'^([\p{Hiragana}\p{Katakana}\p{Han}]{1,3})([、。？！…])', adjusted[i])
-                if m:
-                    tok = m.group(1) + m.group(2)
-                    # move token to previous line, avoid creating empty previous line
-                    adjusted[i-1] += tok
-                    adjusted[i] = adjusted[i][len(tok):]
+    if not missing_report:
+        print("✅ All Kanji characters are in the database!")
+    else:
+        report_df = pd.DataFrame(missing_report, columns=["Sheet", "Row", "Cell Content", "Missing Character"])
+        report_filename = make_safe_filename(check_filename, prefix="missing_kanji_report_")
+        with pd.ExcelWriter(report_filename, engine="xlsxwriter") as writer:
+            report_df.to_excel(writer, index=False, sheet_name="MissingKanji")
+            worksheet = writer.sheets["MissingKanji"]
+            worksheet.set_column("C:C", 50)
+            worksheet.set_column("D:D", 50)
+        files.download(report_filename)
+        print(f"⚠️ Missing characters found. Report saved as {report_filename}")
 
-            # final pass: trim accidental empty lines (but keep at least one char if possible)
-            final = []
-            for part in adjusted:
-                if part == "" and final:
-                    # if empty and there's a previous, merge with previous to avoid empties
-                    final[-1] += ""
-                else:
-                    final.append(part)
-            return final
+# --- UI Menu ---
 
-        chunks = polish_lines(chunks)
+def start_menu():
+    clear_output()
+    def on_button_click(choice):
+        button1.disabled = True
+        button2.disabled = True
+        button3.disabled = True
+        clear_output(wait=True)
+        if choice == "1":
+            construct_kanji_database()
+        elif choice == "2":
+            append_to_database()
+        elif choice == "3":
+            check_against_database()
 
-        print("\n✅ Suggested linebreaks:\n")
-        for i, chunk in enumerate(chunks, 1):
-            print(f"{i:02d}: {chunk}")
+    button1 = widgets.Button(description="📥 Construct Kanji Database", layout=widgets.Layout(width='50%'))
+    button2 = widgets.Button(description="📥 Append Kanji to Database", layout=widgets.Layout(width='50%'))
+    button3 = widgets.Button(description="📤 Check Against Database", layout=widgets.Layout(width='50%'))
 
-else:
-    print("⚠️ Invalid mode. Exiting.")
+    button1.on_click(lambda b: on_button_click("1"))
+    button2.on_click(lambda b: on_button_click("2"))
+    button3.on_click(lambda b: on_button_click("3"))
+
+    display(widgets.VBox([
+        widgets.Label("👋 Welcome! Please choose an option:"),
+        button1,
+        button2,
+        button3
+    ]))
+
+start_menu()
