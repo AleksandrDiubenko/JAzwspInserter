@@ -22,7 +22,7 @@ print("Choose a mode:\n"
 
 mode = input("Enter 1 or 2 (default: 1): ").strip() or "1"
 
-# --- Main regex (Unchanged) ---
+# --- Main regex ---
 pattern = re.compile(r"""
 (
     (\p{Han}{1,2}|\p{Katakana}{2,12}|こと|ところ|\p{Han}(?:\p{Hiragana}(?!で))+\p{Han}|\p{Katakana}{2,12}\p{Han}|もの|入り|」|たち|ここ|そこ|\p{Han}ら|(?P<double>\p{Hiragana}{2})(?P=double)|[えけげせぜてでねめれ]る|まま|[あこそ]いつ|あ[なん]た|さん|まみれ|おそらく|たっぷり|気持ち|すら|さすが|くず|あちこち|もと|さま|[こそあど]れ|ど[れん]だけ|みんな|やつ|[あこそ]いつ|すで|だ|[こそあ]ちら|[こそあ]っち)
@@ -179,12 +179,12 @@ elif mode == "2":
             prev = bp
         chunks.append(text[prev:])
 
-        # --- Polishing pass: punctuation fixes (Kinsoku Shori) ---
+        # --- Polishing pass: punctuation fixes ---
         def polish_lines(chunks):
             adjusted = chunks[:]
             punct_start = "、。？！：；…‥" + "..."
             
-            # RULE 1: Fix "orphaned" leading punctuation.
+            # Fix "orphaned" leading punctuation.
             # If a line starts with punctuation, move it to the end of the previous line.
             for i in range(1, len(adjusted)):
                 # Check for leading punctuation (1 to 3 chars length to catch "...")
