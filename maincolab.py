@@ -1,5 +1,7 @@
-# !pip install regex openpyxl  # Uncomment this line if running locally or if Colab needs it
+# !pip install regex openpyxl  # Uncomment if running locally
 import sys
+import io
+import os
 
 try:
     import regex as re
@@ -8,10 +10,14 @@ except ImportError:
     print("   Please run: pip install regex")
     sys.exit(1)
 
-from google.colab import files
-import io
+try:
+    from google.colab import files
+    IS_COLAB = True
+except ImportError:
+    IS_COLAB = False
+    print("⚠️ Not running in Google Colab. Mode 1 file upload may require manual path adjustment.")
+
 from openpyxl import load_workbook
-import os
 
 # ============================================================
 #  MODE SELECTION
@@ -25,7 +31,7 @@ mode = input("Enter 1 or 2 (default: 1): ").strip() or "1"
 # --- Main regex ---
 pattern = re.compile(r"""
 (
-    (\p{Han}{1,2}|\p{Katakana}{2,12}|こと|ところ|\p{Han}(?:\p{Hiragana}(?!で))+\p{Han}|\p{Katakana}{2,12}\p{Han}|もの|入り|」|たち|ここ|そこ|\p{Han}ら|(?P<double>\p{Hiragana}{2})(?P=double)|[えけげせぜてでねめれ]る|まま|[あこそ]いつ|あ[なん]た|さん|まみれ|おそらく|たっぷり|気持ち|すら|さすが|くず|あちこち|もと|さま|[こそあど]れ|ど[れん]だけ|みんな|やつ|[あこそ]いつ|すで|だ|[こそあ]ちら|[こそあ]っち|みたい|どこ)
+    (\p{Han}{1,2}|\p{Katakana}{2,12}|こと|ところ|\p{Han}(?:\p{Hiragana}(?!で))+\p{Han}|\p{Katakana}{2,12}\p{Han}|もの|入り|」|たち|ここ|そこ|\p{Han}ら|(?P<double>\p{Hiragana}{2})(?P=double)|[えけげせぜてでねめれ]る|まま|[あこそ]いつ|あ[なん]た|さん|まみれ|おそらく|たっぷり|気持ち|すら|さすが|くず|あちこち|もと|さま|[こそあど]れ|ど[れん]だけ|みんな|やつ|すで|だ|[こそあ]ちら|[こそあ]っち|みたい|どこ)
     (が(?!(して|った|ら))|か(?!([はもらなえがけげせぜてでねめれいきぎしちにんをうくぐすつぬむるりっ]|った|さ))|か[は]|は(?!ず)|も(?!の)|の(?![みにがはた為よ])|なく(?!て)|な(?![くのんらるいし])|する(?!な)|から(?!して)|まで|に(?!([はも]|ついて|関して|すら))|
     に[はも]|へ[の]|へ(?![の])|で(?![はもすしきの])|で[はも]|じて(?!る)|や(?![からりるれ])|と[のはか]|と(?!([のなはかす]|[い言云]う))|して[はも]|して(?![はもる])|ならば|なら(?![ばで]))
     |
@@ -37,7 +43,7 @@ pattern = re.compile(r"""
     |
     について(?![はも])|について[はも]|に関して(?![はも])|に関して[はも]|[っいきぎしちにん][ただ]り|とにかく|でも|[くぐ]らい(?!は)|[くぐ]らいは|まるで|って(?![るたかも])|っても|
     すなわち|[うくぐすつぬふむる]の[にはもが]|を|んな[のに]|[って]たら|として(?!も)|つまり|ちょっと|ちょうど|々な|々に(?![もは])|々に[もは]|たい(?=\p{Han})|けど|よう[なに](?=(\p{Han}{2}|\p{Katakana}{2}))|
-    だと(?!は)|だとは|とは|[のただ]ほうが|ないほうが|[のただ]方が|ない方が|風に|[いきしちにひみり]たくて|[うくすつぬふむる]まて|[^一-龯]続く|ないと(?=いけ)|く(?=(\p{Han}|\p{Katakana}{2}))|
+    [ただ]と(?!は)|[ただ]とは|とは|[のただ]ほうが|ないほうが|[のただ]方が|ない方が|風に|[いきしちにひみり]たくて|[うくすつぬふむる]まて|[^一-龯]続く|ないと(?=いけ)|く(?=(\p{Han}|\p{Katakana}{2}))|
     ほとんど|らしくて(?!は)|らしく(?!て)|ため([にの](?![はも])|ならば|なら(?!ば))|ため[にの][はも]|為に(?![はも])|為に[はも]|わけ(では|じゃ(?!あ))|ほうが(?=(\p{Han}|\p{Katakana}{2}))|
     いきなり|すれば|(れば|ないと)(?=([い良善好]い|[よ良善好]か))|て(?=い?ました)|しっかり|して(?=あげ([るた]|(ます|まし)))|て(?=(ください|下さい|ちょうだい))|これまでに(?!は)|
     より(?=ずっと)|はじめて|[てで](?=くれ)|くなって(?!は)|され[るた](?![んの])|かった(?![んのりわっがぞぜ])|もなくて(?!は)|あらゆる|すべて(の|を|では|じゃ(?!あ))|すぐに[はも]|すぐに(?![はも])|
@@ -49,7 +55,8 @@ pattern = re.compile(r"""
     なら(?=(\p{Han}|\p{Katakana}{2}))|なのは|[えけげせぜてでねめれ][るてた](?=(\p{Han}|\p{Katakana}{2}))|たく(?=な[いか])|[わかさたなまら]れ[るた](?=(\p{Han}|\p{Katakana}{2}))|いくつか|\p{Han}ても|して(?=(\p{Han}|\p{Katakana}{2}))|
     \p{Han}たる(?=(\p{Han}|\p{Katakana}{2}))|という(?=(\p{Han}|\p{Katakana}{2}))|を|な[くい](?=(\p{Han}|\p{Katakana}{2}))|\p{Han}\p{Hiragana}に(?=な(る|った|らな))|いた(?=(\p{Han}|\p{Katakana}{2}))|
     ないと(?=(\p{Han}|\p{Katakana}{2}))|て(?=ほし[いくか])|\p{Han}{2}(?=\p{Katakana}{2})|な(?=(\p{Han}|\p{Katakana}{2}))|\p{Katakana}{2}(?=\p{Han}{2})|(?P<doubler>\p{Hiragana}{2})(?P=doubler)|くて(?=\p{Han})|
-    しか(?=(\p{Han}|\p{Katakana}{2}))|よりかは|て(?=しま[ういわ])|とっ?ても|\p{Han}\p{Hiragana}(?=\p{Han}{2})|とか(?=\p{Han})|もう(?=\p{Han})|\p{Hiragana}(?=つもり)|が(?=(\p{Han}{2}|\p{Katakana}{2}))
+    しか(?=(\p{Han}|\p{Katakana}{2}))|よりかは|て(?=しま[ういわ])|とっ?ても|\p{Han}\p{Hiragana}(?=\p{Han}{2})|とか(?=\p{Han})|もう(?=\p{Han})|\p{Hiragana}(?=つもり)|が(?=(\p{Han}{2}|\p{Katakana}{2}))|
+    なんて(?=こった)
 )
 """, re.VERBOSE)
 
@@ -63,72 +70,79 @@ if mode == "1":
     print(f"✅ Using delimiter: {repr(INSERT_CHAR)}")
     print(f"🔍 Preview: 日本語{preview_symbol}テキスト")
 
-    print("\n📂 Please upload your Excel file:")
-    uploaded = files.upload()
-    
-    if not uploaded:
-        print("⚠️ No file uploaded. Exiting.")
-    else:
+    if IS_COLAB:
+        print("\n📂 Please upload your Excel file:")
+        uploaded = files.upload()
+        if not uploaded:
+            print("⚠️ No file uploaded. Exiting.")
+            sys.exit()
         filename = list(uploaded.keys())[0]
         wb = load_workbook(io.BytesIO(uploaded[filename]))
-        target_headers = {"ja", "jp", "jap", "japanese"}
+    else:
+        # Fallback for local testing
+        filename = input("Enter local filename: ").strip()
+        wb = load_workbook(filename)
 
-        def postprocess_ellipses(text):
-            if not isinstance(text, str): return text
-            # Fix ellipses that might have been split awkwardly
-            text = re.sub(rf'^(…{{1,4}}){re.escape(INSERT_CHAR)}', r'\1', text)
-            text = re.sub(r'(?<!…)(…)(?!…)(?=\S)', lambda m: m.group(1) + INSERT_CHAR, text)
-            text = re.sub(rf'([^\s…]){re.escape(INSERT_CHAR)}(…|\.\.\.)', r'\1\2', text)
-            return text
+    target_headers = {"ja", "jp", "jap", "japanese"}
 
-        def insert_delimiter(text):
-            if not isinstance(text, str): return text
-            
-            def replacer(m):
-                end = m.end()
-                remainder = text[end:]
-                
-                # Safety check for end of string
-                if not remainder:
-                    return m.group(0)
+    def postprocess_ellipses(text):
+        if not isinstance(text, str): return text
+        # Fix ellipses that might have been split awkwardly
+        text = re.sub(rf'^(…{{1,4}}){re.escape(INSERT_CHAR)}', r'\1', text)
+        text = re.sub(r'(?<!…)(…)(?!…)(?=\S)', lambda m: m.group(1) + INSERT_CHAR, text)
+        text = re.sub(rf'([^\s…]){re.escape(INSERT_CHAR)}(…|\.\.\.)', r'\1\2', text)
+        return text
 
-                next_char = remainder[0]
-                # Logic: Do NOT insert delimiter if the next character is punctuation
-                # or if the rest of the cell is only punctuation/whitespace.
-                if re.match(r'[、。？！,．,.!?"”」』）)]', next_char) or re.match(r'^[、。？！…‥！？\s]*$', remainder):
-                    return m.group(0)
-                
-                return m.group(0) + INSERT_CHAR
-
-            processed = pattern.sub(replacer, text)
-            return postprocess_ellipses(processed)
-
-        print("⏳ Processing...")
-        processed_count = 0
+    def insert_delimiter(text):
+        if not isinstance(text, str): return text
         
-        for ws in wb.worksheets:
-            # Create header mapping (Header Name -> Column Index)
-            headers = {}
-            for cell in ws[1]:
-                if cell.value:
-                    headers[cell.value] = cell.column
+        def replacer(m):
+            end = m.end()
+            remainder = text[end:]
+            
+            # Safety check for end of string
+            if not remainder:
+                return m.group(0)
 
-            for header, col in headers.items():
-                if str(header).strip().lower() in target_headers:
-                    for row in range(2, ws.max_row + 1):
-                        cell = ws.cell(row=row, column=col)
-                        if cell.value and isinstance(cell.value, str):
-                            new_val = insert_delimiter(cell.value)
-                            if new_val != cell.value:
-                                cell.value = new_val
-                                processed_count += 1
+            next_char = remainder[0]
+            # Logic: Do NOT insert delimiter if the next character is punctuation
+            # or if the rest of the cell is only punctuation/whitespace.
+            if re.match(r'[、。？！,．,.!?"”」』）)]', next_char) or re.match(r'^[、。？！…‥！？\s]*$', remainder):
+                return m.group(0)
+            
+            return m.group(0) + INSERT_CHAR
 
-        name, ext = os.path.splitext(filename)
-        output_filename = f"delimiters_added_{name}{ext}"
-        wb.save(output_filename)
+        processed = pattern.sub(replacer, text)
+        return postprocess_ellipses(processed)
+
+    print("⏳ Processing...")
+    processed_count = 0
+    
+    for ws in wb.worksheets:
+        # Create header mapping (Header Name -> Column Index)
+        headers = {}
+        for cell in ws[1]:
+            if cell.value:
+                headers[cell.value] = cell.column
+
+        for header, col in headers.items():
+            if str(header).strip().lower() in target_headers:
+                for row in range(2, ws.max_row + 1):
+                    cell = ws.cell(row=row, column=col)
+                    if cell.value and isinstance(cell.value, str):
+                        new_val = insert_delimiter(cell.value)
+                        if new_val != cell.value:
+                            cell.value = new_val
+                            processed_count += 1
+
+    name, ext = os.path.splitext(filename)
+    output_filename = f"delimiters_added_{name}{ext}"
+    wb.save(output_filename)
+    
+    if IS_COLAB:
         files.download(output_filename)
-        print(f"✅ Done! Processed {processed_count} cells.")
-        print(f"⬇️ File saved as: {output_filename}")
+    print(f"✅ Done! Processed {processed_count} cells.")
+    print(f"⬇️ File saved as: {output_filename}")
 
 # ============================================================
 #  MODE 2: Smart text segment linebreaker
